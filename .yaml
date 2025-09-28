@@ -1,0 +1,21 @@
+# Application configuration for Crowd Detection
+
+model:
+  weights_path: "models/yolov8n.pt"
+  confidence_threshold: 0.25
+  iou_threshold: 0.45
+  device: "cpu"  # or "cuda" for GPU
+
+input:
+  video_path: "static/camera.mp4"
+
+output:
+  results_dir: "output/"
+  save_video: true
+  save_logs: true
+
+analysis:
+  enable_density: true
+  enable_speed_estimation: true
+
+# Add more settings as needed for your project
