@@ -19,7 +19,7 @@ try:
 except ImportError:
     raise ImportError("The 'ultralytics' package is not installed. Please install it using 'pip install ultralytics'.")
 
-# Add necessary classes to safe globals
+# Add necessary classes to safe globals for torch serialization
 torch.serialization.add_safe_globals([
     DetectionModel,
     nn.modules.container.Sequential,
@@ -41,11 +41,11 @@ st.title("👥 Real-Time Crowd Detection and Counting with YOLOv8")
 def load_model(model_path):
     try:
         original_load = torch.load
-
+        
         def patched_load(*args, **kwargs):
             kwargs['weights_only'] = False
             return original_load(*args, **kwargs)
-
+        
         torch.load = patched_load
         model = YOLO(model_path)
         torch.load = original_load
@@ -77,7 +77,7 @@ with st.spinner("Loading model..."):
             nn.Module
         ]):
             model = load_model("yolov8n.pt")
-
+        
         if model is None:
             st.stop()
     except Exception as e:
@@ -94,7 +94,7 @@ def update_crowd_data(results):
             class_id = int(box.cls.item())
             class_name = detected_classes[class_id]
             current_frame_counts[class_name] = current_frame_counts.get(class_name, 0) + 1
-
+    
     timestamp = time.time()
     for person_type, count in current_frame_counts.items():
         st.session_state['crowd_counts'][person_type] = st.session_state['crowd_counts'].get(person_type, 0) + count
@@ -125,14 +125,14 @@ if uploaded_file and model and input_source == "Image":
         try:
             image = Image.open(uploaded_file)
             st.image(image, caption="Uploaded Image", use_container_width=True)
-
+            
             results = model(image)
             results_img = results[0].plot()
             st.image(results_img, caption="Detected Image", use_container_width=True)
-
+            
             st.subheader("Detection Results")
             boxes = results[0].boxes
-
+            
             if len(boxes) > 0:
                 update_crowd_data(results)
                 for i, box in enumerate(boxes):
@@ -142,7 +142,7 @@ if uploaded_file and model and input_source == "Image":
                     st.write(f"Object {i+1}: {class_name} - Confidence: {confidence:.2f}")
             else:
                 st.info("No objects detected.")
-
+            
             st.subheader("Crowd Count Summary")
             st.write(f"Total People Counted: {st.session_state['total_people_counted']}")
             if st.session_state['crowd_counts']:
@@ -157,7 +157,7 @@ if uploaded_file and model and input_source == "Image":
                 st.altair_chart(chart_summary, use_container_width=True)
             else:
                 st.info("No people detected yet to show summary.")
-
+        
         except Exception as e:
             st.error(f"Error processing image: {str(e)}")
 
@@ -189,7 +189,7 @@ elif (uploaded_file and model and input_source in ["Video", "Camera"]):
                 if st.session_state['time_series_data']:
                     df_realtime = pd.DataFrame(st.session_state['time_series_data'])
                     # Group by time (e.g., every few seconds) and person type for a smoother chart
-                    df_realtime['time_interval'] = df_realtime['timestamp'].astype(int) // 5 * 5 # Group by 5-second intervals
+                    df_realtime['time_interval'] = df_realtime['timestamp'].astype(int) // 5 * 5  # Group by 5-second intervals
                     df_grouped = df_realtime.groupby(['time_interval', 'person_type']).size().reset_index(name='count')
 
                     chart_realtime = alt.Chart(df_grouped).mark_line(point=True).encode(
