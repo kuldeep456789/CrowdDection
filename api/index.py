@@ -12,7 +12,7 @@ import pandas as pd
 import altair as alt
 import time
 import io
-
+import site; print(site.getsitepackages())
 # Ensure compatibility with the ultralytics package
 try:
     import ultralytics
