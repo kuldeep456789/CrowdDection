@@ -1,3 +1,9 @@
+import tempfile
+import cv2
+import numpy as np
+import pandas as pd
+import altair as alt
+import time
 import streamlit as st
 from PIL import Image
 import torch
@@ -5,14 +11,8 @@ import torch.serialization
 from ultralytics import YOLO
 import torch.nn as nn
 from ultralytics.nn.tasks import DetectionModel
-import tempfile
-import cv2
-import numpy as np
-import pandas as pd
-import altair as alt
-import time
-import io
-import site; print(site.getsitepackages())
+
+
 # Ensure compatibility with the ultralytics package
 try:
     import ultralytics
@@ -41,11 +41,11 @@ st.title("👥 Real-Time Crowd Detection and Counting with YOLOv8")
 def load_model(model_path):
     try:
         original_load = torch.load
-        
+
         def patched_load(*args, **kwargs):
             kwargs['weights_only'] = False
             return original_load(*args, **kwargs)
-        
+
         torch.load = patched_load
         model = YOLO(model_path)
         torch.load = original_load
@@ -54,19 +54,15 @@ def load_model(model_path):
         st.error(f"Error loading model: {e}")
         return None
 
-# Initialize session state for crowd counts
+# Initialize session state for counters
 if 'crowd_counts' not in st.session_state:
     st.session_state['crowd_counts'] = {}
-
-# Initialize session state for total people counted
 if 'total_people_counted' not in st.session_state:
     st.session_state['total_people_counted'] = 0
-
-# Initialize session state for time series data
 if 'time_series_data' not in st.session_state:
     st.session_state['time_series_data'] = []
 
-# Load model
+# Load YOLO model
 with st.spinner("Loading model..."):
     try:
         with torch.serialization.safe_globals([
@@ -77,14 +73,14 @@ with st.spinner("Loading model..."):
             nn.Module
         ]):
             model = load_model("yolov8n.pt")
-        
+
         if model is None:
             st.stop()
     except Exception as e:
         st.error(f"Failed to load model: {str(e)}")
         st.stop()
 
-# Function to update crowd counts and time series data
+# Function to update crowd counts
 def update_crowd_data(results):
     detected_classes = results[0].names
     boxes = results[0].boxes
@@ -94,27 +90,31 @@ def update_crowd_data(results):
             class_id = int(box.cls.item())
             class_name = detected_classes[class_id]
             current_frame_counts[class_name] = current_frame_counts.get(class_name, 0) + 1
-    
+
     timestamp = time.time()
     for person_type, count in current_frame_counts.items():
         st.session_state['crowd_counts'][person_type] = st.session_state['crowd_counts'].get(person_type, 0) + count
         st.session_state['total_people_counted'] += count
-        st.session_state['time_series_data'].append({'timestamp': timestamp, 'person_type': person_type, 'count': 1}) # Record each detection
+        st.session_state['time_series_data'].append({
+            'timestamp': timestamp,
+            'person_type': person_type,
+            'count': 1
+        })
 
 # Input source selection
 input_source = st.radio("Select input source:", ("Image", "Video", "Camera"))
 
-# Upload file (image or video)
+# Upload file
 if input_source in ["Image", "Video", "Camera"]:
     uploaded_file = st.file_uploader("Upload file", type=["jpg", "jpeg", "png", "mp4"])
 else:
     uploaded_file = None
 
-# Use phone camera
+# Camera input
 if input_source == "Camera":
     camera_input = st.camera_input("Capture from Camera")
     if camera_input:
-        uploaded_file = camera_input  # Treat camera input as an uploaded file
+        uploaded_file = camera_input
 
 # Placeholder for real-time chart
 realtime_chart_placeholder = st.empty()
@@ -125,14 +125,14 @@ if uploaded_file and model and input_source == "Image":
         try:
             image = Image.open(uploaded_file)
             st.image(image, caption="Uploaded Image", use_container_width=True)
-            
+
             results = model(image)
             results_img = results[0].plot()
             st.image(results_img, caption="Detected Image", use_container_width=True)
-            
+
             st.subheader("Detection Results")
             boxes = results[0].boxes
-            
+
             if len(boxes) > 0:
                 update_crowd_data(results)
                 for i, box in enumerate(boxes):
@@ -142,11 +142,12 @@ if uploaded_file and model and input_source == "Image":
                     st.write(f"Object {i+1}: {class_name} - Confidence: {confidence:.2f}")
             else:
                 st.info("No objects detected.")
-            
+
             st.subheader("Crowd Count Summary")
             st.write(f"Total People Counted: {st.session_state['total_people_counted']}")
             if st.session_state['crowd_counts']:
-                df_summary = pd.DataFrame(list(st.session_state['crowd_counts'].items()), columns=['Person Type', 'Count'])
+                df_summary = pd.DataFrame(list(st.session_state['crowd_counts'].items()),
+                                          columns=['Person Type', 'Count'])
                 chart_summary = alt.Chart(df_summary).mark_bar().encode(
                     x='Person Type',
                     y='Count',
@@ -157,15 +158,14 @@ if uploaded_file and model and input_source == "Image":
                 st.altair_chart(chart_summary, use_container_width=True)
             else:
                 st.info("No people detected yet to show summary.")
-        
+
         except Exception as e:
             st.error(f"Error processing image: {str(e)}")
 
-# Process video (including camera input)
-elif (uploaded_file and model and input_source in ["Video", "Camera"]):
+# Process video
+elif uploaded_file and model and input_source in ["Video", "Camera"]:
     with st.spinner("Processing video..."):
         try:
-            # Save the uploaded video or camera input to a temp file
             temp_file = tempfile.NamedTemporaryFile(delete=False)
             temp_file.write(uploaded_file.read())
             temp_file_path = temp_file.name
@@ -185,11 +185,11 @@ elif (uploaded_file and model and input_source in ["Video", "Camera"]):
 
                 update_crowd_data(results)
 
-                # Create real-time chart
                 if st.session_state['time_series_data']:
                     df_realtime = pd.DataFrame(st.session_state['time_series_data'])
-                    # Group by time (e.g., every few seconds) and person type for a smoother chart
-                    df_realtime['time_interval'] = df_realtime['timestamp'].astype(int) // 5 * 5  # Group by 5-second intervals
+                    df_realtime['time_interval'] = df_realtime['timestamp'].astype(int) // 5 * 5
+                    df_realtime['time_interval'] = pd.to_datetime(df_realtime['time_interval'], unit='s')
+
                     df_grouped = df_realtime.groupby(['time_interval', 'person_type']).size().reset_index(name='count')
 
                     chart_realtime = alt.Chart(df_grouped).mark_line(point=True).encode(
@@ -209,7 +209,8 @@ elif (uploaded_file and model and input_source in ["Video", "Camera"]):
             st.subheader("Final Crowd Count Summary")
             st.write(f"Total People Counted: {st.session_state['total_people_counted']}")
             if st.session_state['crowd_counts']:
-                df_final_summary = pd.DataFrame(list(st.session_state['crowd_counts'].items()), columns=['Person Type', 'Count'])
+                df_final_summary = pd.DataFrame(list(st.session_state['crowd_counts'].items()),
+                                                columns=['Person Type', 'Count'])
                 chart_final_summary = alt.Chart(df_final_summary).mark_bar().encode(
                     x='Person Type',
                     y='Count',
@@ -224,35 +225,32 @@ elif (uploaded_file and model and input_source in ["Video", "Camera"]):
         except Exception as e:
             st.error(f"Error processing video: {str(e)}")
 
+# Save results to CSV
 def save_crowd_results_to_csv(time_series_data):
-    # Enhanced DataFrame with Frame Number, Person Type, Count, and Timestamp
     df = pd.DataFrame(time_series_data)
     if not df.empty:
-        # Assign frame numbers (1-based index for each detection)
         df['Frame Number'] = range(1, len(df) + 1)
-        # Convert timestamp to readable time
         df['Time'] = pd.to_datetime(df['timestamp'], unit='s').dt.strftime('%Y-%m-%d %H:%M:%S')
-        # Group by frame and person type for summary
+
         df_grouped = df.groupby(['Frame Number', 'Time', 'person_type']).agg({'count': 'sum'}).reset_index()
         df_grouped.rename(columns={
             'person_type': 'Person Type',
             'count': 'Person Count in Crowd',
             'Time': 'Detection Time'
         }, inplace=True)
-        # Reorder columns for clarity
         df_grouped = df_grouped[['Frame Number', 'Detection Time', 'Person Type', 'Person Count in Crowd']]
-        # Calculate total count for each person type
+
         total_counts = df_grouped.groupby('Person Type')['Person Count in Crowd'].sum().reset_index()
         total_counts['Frame Number'] = 'TOTAL'
         total_counts['Detection Time'] = ''
         total_counts = total_counts[['Frame Number', 'Detection Time', 'Person Type', 'Person Count in Crowd']]
-        # Append total row(s) to the DataFrame
+
         df_final = pd.concat([df_grouped, total_counts], ignore_index=True)
         return df_final
     else:
         return pd.DataFrame(columns=['Frame Number', 'Detection Time', 'Person Type', 'Person Count in Crowd'])
 
-# After the video/image processing blocks, add download button
+# Download button
 if st.session_state['time_series_data']:
     df_crowd_csv = save_crowd_results_to_csv(st.session_state['time_series_data'])
     st.download_button(
